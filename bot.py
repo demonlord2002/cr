@@ -1,261 +1,102 @@
-#!/usr/bin/env python3
-# bot.py — Crunchyroll downloader with dynamic impersonation target detection
-
 import os
-import json
-import tempfile
+import re
 import subprocess
 import asyncio
-import logging
-from typing import Optional
+from telegram import Update
+from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
+from dotenv import load_dotenv
 
-from pyrogram import Client, filters
-from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from pymongo import MongoClient
+load_dotenv()
 
-import config  # BOT_TOKEN, API_ID, API_HASH, MONGO_URI
+BOT_TOKEN = os.getenv("BOT_TOKEN")
+OWNER_ID = int(os.getenv("OWNER_ID", "0"))
+COOKIES_FILE = "cookies/cookies.txt"
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/downloads")
 
-logging.basicConfig(level=logging.INFO)
-log = logging.getLogger("crunchy_bot")
+os.makedirs(DOWNLOAD_DIR, exist_ok=True)
 
-app = Client(
-    "crunchy_dl_bot",
-    bot_token=config.BOT_TOKEN,
-    api_id=config.API_ID,
-    api_hash=config.API_HASH,
-)
+if not os.path.exists(COOKIES_FILE):
+    os.makedirs("cookies", exist_ok=True)
+    print(f"[ERROR] Please place your cookies.txt file in {COOKIES_FILE}")
+    exit()
 
-try:
-    db = MongoClient(config.MONGO_URI).crunchy_bot
-    log.info("Connected to MongoDB")
-except Exception as e:
-    log.warning("MongoDB not configured or connection failed: %s", e)
-    db = None
+def clean_filename(name: str) -> str:
+    return re.sub(r'[\\/*?:"<>|]', "", name)
 
-JOBS: dict[int, dict] = {}
-_last_upload_edit: dict[int, float] = {}
+async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return await update.message.reply_text("🚫 You are not authorized to use this bot.")
+    await update.message.reply_text("✅ Send `/download <crunchyroll_link>` to download video with all audio languages (MKV format).")
 
+async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.effective_user.id != OWNER_ID:
+        return await update.message.reply_text("🚫 You are not authorized to use this bot.")
+    
+    if not context.args:
+        return await update.message.reply_text("❌ Usage: `/download <crunchyroll_link>`", parse_mode="Markdown")
 
-# --------- Helpers ---------
-async def run_subprocess(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess:
-    def _run():
-        return subprocess.run(cmd, capture_output=True, text=True, check=check)
-    try:
-        return await asyncio.to_thread(_run)
-    except subprocess.CalledProcessError as err:
-        return err
-
-
-def detect_drm(stderr_text: str) -> bool:
-    if not stderr_text:
-        return False
-    s = stderr_text.lower()
-    return any(k in s for k in ["drm", "widevine", "encrypted", "this video is drm protected"])
-
-
-def decrypt_drm_video(url: str, lang: str, output_path: str) -> None:
-    raise NotImplementedError("DRM backend not implemented.")
-
-
-async def upload_progress(current: int, total: int, message):
-    try:
-        now = asyncio.get_event_loop().time()
-        last = _last_upload_edit.get(message.chat.id, 0)
-        if now - last < 2 and current < total:
-            return
-        _last_upload_edit[message.chat.id] = now
-        percent = int(current * 100 / total) if total else 0
-        await message.edit_text(f"📤 Uploading... {percent}% ({current//1024} KiB / {total//1024} KiB)")
-    except Exception:
-        pass
-
-
-async def get_best_impersonation_target() -> Optional[str]:
-    """Return the best available Chrome impersonation target or None."""
-    proc = await run_subprocess(["yt-dlp", "--list-impersonate-targets"])
-    if proc.returncode != 0:
-        return None
-    targets = (proc.stdout or "").splitlines()
-    chrome_targets = [t.strip() for t in targets if "chrome" in t.lower()]
-    return chrome_targets[0] if chrome_targets else None
-
-
-# --------- Commands ---------
-@app.on_message(filters.command("start") & filters.private)
-async def cmd_start(_, message):
-    await message.reply_text(
-        "👋 Send me a Crunchyroll link (or use /download <link>).\n"
-        "⚠️ DRM-protected videos require a legal DRM backend."
-    )
-
-
-@app.on_message(filters.command("download") & filters.private)
-async def cmd_download(client, message):
-    if len(message.command) < 2:
-        return await message.reply_text("Usage: /download <url>")
-    url = message.command[1].strip()
-    await process_link_request(client, message.chat.id, url, reply_message=message)
-
-
-@app.on_message(filters.regex(r"https?://[^\s]+") & filters.private)
-async def link_message(client, message):
-    url = message.text.strip().split()[0]
-    await process_link_request(client, message.chat.id, url, reply_message=message)
-
-
-# --------- Link Processing ---------
-async def process_link_request(client, chat_id: int, url: str, reply_message):
-    log.info("New link from %s: %s", chat_id, url)
-    JOBS[chat_id] = {"url": url}
-    m = await reply_message.reply_text("🔍 Inspecting link with yt-dlp...")
-
-    impersonate_target = await get_best_impersonation_target()
-    cmd = [
-        "yt-dlp",
-        "--cookies", "cookies/cookies.txt",
-        "-J", url
-    ]
-    if impersonate_target:
-        cmd[1:1] = ["--impersonate", impersonate_target]  # insert after yt-dlp
-
-    proc = await run_subprocess(cmd, check=False)
-    stdout = getattr(proc, "stdout", "") or ""
-    stderr = getattr(proc, "stderr", "") or ""
-
-    if proc.returncode != 0:
-        if detect_drm(stderr):
-            await m.edit_text("🔐 DRM detected. Implement decrypt_drm_video() to handle it.")
-            JOBS[chat_id]["info"] = {"drm": True}
-            return
-        else:
-            await m.edit_text(f"❌ yt-dlp error:\n```\n{stderr[:1000]}\n```")
-            JOBS.pop(chat_id, None)
-            return
+    url = context.args[0]
+    msg = await update.message.reply_text("⏳ Downloading video with all audio tracks...")
 
     try:
-        info = json.loads(stdout)
-    except Exception as e:
-        await m.edit_text(f"❌ Failed to parse yt-dlp output: {e}")
-        JOBS.pop(chat_id, None)
-        return
+        base_filename = clean_filename("%(title)s")
+        temp_dir = os.path.join(DOWNLOAD_DIR, "temp_dl")
+        os.makedirs(temp_dir, exist_ok=True)
 
-    JOBS[chat_id]["info"] = info
-    title = info.get("title", "video")
-    subs = info.get("subtitles", {}) or {}
-    auto_subs = info.get("automatic_captions", {}) or {}
-    all_subs = list(dict.fromkeys(list(subs.keys()) + list(auto_subs.keys()))) or ["none"]
+        # Download best video and all audio formats separately
+        # -f "bv*+ba*" means best video + all audio, but yt-dlp merges only best audio by default
+        # So we will download bestvideo+bestaudio in mkv format and let yt-dlp merge automatically
+        output_template = os.path.join(temp_dir, base_filename + ".%(ext)s")
 
-    buttons = [[InlineKeyboardButton(text=lang, callback_data=f"cr_lang:{lang}")]
-               for lang in all_subs[:10]]
-    buttons.append([InlineKeyboardButton("Download without subs", callback_data="cr_lang:none")])
-
-    await m.edit_text(
-        f"Title: {title}\nSelect subtitle/audio language:",
-        reply_markup=InlineKeyboardMarkup(buttons)
-    )
-
-
-# --------- Callback ---------
-@app.on_callback_query(filters.regex(r"^cr_lang:(.+)"))
-async def callback_pick_lang(client, callback):
-    chat_id = callback.message.chat.id
-    lang = callback.data.split(":", 1)[1]
-
-    if chat_id not in JOBS:
-        await callback.answer("No active job found.", show_alert=True)
-        return
-
-    url = JOBS[chat_id]["url"]
-    info = JOBS[chat_id].get("info", {})
-    title = info.get("title", "video")
-    await callback.message.edit_text(f"⬇️ Preparing download: {title}\nLanguage: {lang}")
-
-    impersonate_target = await get_best_impersonation_target()
-
-    with tempfile.TemporaryDirectory() as tmpdir:
-        safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:120] or "video"
-        out_template = os.path.join(tmpdir, f"{safe_title}.%(ext)s")
-        final_output_mp4 = os.path.join(tmpdir, f"{safe_title}.mp4")
-
-        yt_cmd = [
+        cmd = [
             "yt-dlp",
-            "--cookies", "cookies/cookies.txt",
-            "-f", "bv*+ba/best",
-            "--no-part",
-            "--retries", "5",
-            "--fragment-retries", "5",
-            "--concurrent-fragments", "16",
-            "--limit-rate", "15M",
-            "--downloader-args", "ffmpeg:-threads 8",
-            url,
-            "-o", out_template
+            "--cookies", COOKIES_FILE,
+            "-o", output_template,
+            "--no-warnings",
+            "--merge-output-format", "mkv",
+            "-f", "bestvideo+bestaudio/best",
+            url
         ]
-        if impersonate_target:
-            yt_cmd[1:1] = ["--impersonate", impersonate_target]
-        if lang not in ("none", "und"):
-            yt_cmd.extend(["--sub-lang", lang, "--embed-subs", "--write-subs", "--write-auto-sub"])
+        
+        subprocess.run(cmd, check=True)
 
-        await callback.message.edit_text("⬇️ Starting yt-dlp...")
-        proc = await run_subprocess(yt_cmd, check=False)
-        stderr = getattr(proc, "stderr", "") or ""
-        returncode = getattr(proc, "returncode", 1)
+        # After yt-dlp finishes, find the downloaded .mkv or video file
+        downloaded_files = [f for f in os.listdir(temp_dir) if f.endswith(".mkv") or f.endswith(".mp4")]
+        if not downloaded_files:
+            return await msg.edit_text("❌ No video file found after download.")
 
-        if returncode != 0:
-            if detect_drm(stderr):
-                await callback.message.edit_text("🔐 DRM detected. Attempting DRM backend...")
-                try:
-                    decrypt_drm_video(url, lang, final_output_mp4)
-                except NotImplementedError:
-                    await callback.message.edit_text("❌ DRM backend not implemented.")
-                    JOBS.pop(chat_id, None)
-                    return
-                except Exception as e:
-                    await callback.message.edit_text(f"❌ DRM backend failed: {e}")
-                    JOBS.pop(chat_id, None)
-                    return
-            else:
-                await callback.message.edit_text(f"❌ yt-dlp failed:\n```\n{stderr[:1000]}\n```")
-                JOBS.pop(chat_id, None)
-                return
+        downloaded_files.sort(key=lambda f: os.path.getsize(os.path.join(temp_dir, f)), reverse=True)
+        downloaded_file_path = os.path.join(temp_dir, downloaded_files[0])
+
+        # Rename file to .mkv forcibly if mp4 (because it may not contain all audio tracks merged)
+        final_output = os.path.join(DOWNLOAD_DIR, base_filename + ".mkv")
+        if not downloaded_file_path.endswith(".mkv"):
+            # Remux to mkv using ffmpeg to support multiple audio tracks
+            remux_cmd = [
+                "ffmpeg",
+                "-i", downloaded_file_path,
+                "-c", "copy",
+                final_output
+            ]
+            subprocess.run(remux_cmd, check=True)
+            os.remove(downloaded_file_path)
         else:
-            produced_files = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir)]
-            if not produced_files:
-                await callback.message.edit_text("❌ No file produced.")
-                JOBS.pop(chat_id, None)
-                return
-            produced_files.sort(key=lambda p: os.path.getsize(p), reverse=True)
-            produced = produced_files[0]
-            if not produced.lower().endswith(".mp4"):
-                remux_cmd = ["ffmpeg", "-y", "-i", produced, "-c", "copy", final_output_mp4]
-                remux_proc = await run_subprocess(remux_cmd, check=False)
-                final_path = final_output_mp4 if remux_proc.returncode == 0 else produced
-            else:
-                final_path = produced
+            os.rename(downloaded_file_path, final_output)
 
-        try:
-            upload_msg = await callback.message.reply_text("📤 Uploading to Telegram...")
-            await client.send_document(
-                chat_id,
-                final_path,
-                caption=f"{title} — downloaded with yt-dlp",
-                progress=upload_progress,
-                progress_args=(upload_msg,)
-            )
-            if db:
-                db.downloads.insert_one({
-                    "user_id": chat_id,
-                    "title": title,
-                    "url": url,
-                    "lang": lang,
-                    "timestamp": int(asyncio.get_event_loop().time())
-                })
-            await upload_msg.edit_text("✅ Upload complete.")
-        except Exception as e:
-            await callback.message.edit_text(f"❌ Upload failed: {e}")
-        finally:
-            JOBS.pop(chat_id, None)
+        await update.message.reply_document(document=open(final_output, "rb"), caption=f"{base_filename} (with all audio tracks)")
+        os.remove(final_output)
+        os.rmdir(temp_dir)
+        await msg.edit_text("✅ Download and upload completed!")
+    except subprocess.CalledProcessError as e:
+        await msg.edit_text(f"❌ Download failed: {e}")
+    except Exception as e:
+        await msg.edit_text(f"⚠ Error: {e}")
 
+def main():
+    app = ApplicationBuilder().token(BOT_TOKEN).build()
+    app.add_handler(CommandHandler("start", start))
+    app.add_handler(CommandHandler("download", download))
+    app.run_polling()
 
 if __name__ == "__main__":
-    log.info("Starting bot...")
-    app.run()
+    main()
