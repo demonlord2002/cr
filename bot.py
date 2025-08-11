@@ -31,7 +31,7 @@ app = Client(
 
 ytdlp_cmd = [
     "yt-dlp",
-    "--cookies", "cookies.txt",
+    "--cookies", "cookies/cookies.txt",  # ✅ correct path
     "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
     link
 ]
