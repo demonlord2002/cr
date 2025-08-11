@@ -1,364 +1,303 @@
-# bot.py
-# Pyrogram-based Telegram bot that:
-# - Accepts a URL
-# - Shows available audio/subtitle options (as provided by yt-dlp)
-# - Downloads the chosen format (using yt-dlp)
-# - Uploads video as a Telegram document
-#
-# IMPORTANT: This bot does NOT bypass DRM. DRM-protected Crunchyroll content will fail to download.
-# If you have pre-decrypted files, place them where DOWNLOAD_DIR points and use the /upload_local command.
-#
-# Dependencies:
-# pip install pyrogram tgcrypto python-dotenv motor aiofiles
+#!/usr/bin/env python3
+# bot.py — Crunchyroll downloader (DRM-aware placeholder)
+# Requirements: pyrogram, tgcrypto, pymongo, yt-dlp
+# pip install pyrogram tgcrypto pymongo yt-dlp
 
 import os
-import shutil
-import asyncio
 import json
+import tempfile
+import subprocess
+import asyncio
 import logging
-import uuid
-from datetime import datetime
+from typing import Optional
 
 from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
-from motor.motor_asyncio import AsyncIOMotorClient
-from config import *
-import subprocess
+from pymongo import MongoClient
 
-# ---------- Setup logging ----------
-logging.basicConfig(level=LOG_LEVEL)
-log = logging.getLogger(__name__)
+import config  # your config.py with BOT_TOKEN, API_ID, API_HASH, MONGO_URI, CRUNCHYROLL_USER, CRUNCHYROLL_PASS
 
-# ---------- Ensure download dir ----------
-os.makedirs(DOWNLOAD_DIR, exist_ok=True)
+# ---------- Logging ----------
+logging.basicConfig(level=logging.INFO)
+log = logging.getLogger("crunchy_bot")
 
-# ---------- MongoDB ----------
-mongo = AsyncIOMotorClient(MONGO_URL) if MONGO_URL else None
-db = mongo.cr_bot if mongo else None
-jobs_coll = db.jobs if db else None
-
-# ---------- Pyrogram Client ----------
+# ---------- Pyrogram client ----------
 app = Client(
-    "crunchy_bot",
-    api_id=API_ID,
-    api_hash=API_HASH,
-    bot_token=BOT_TOKEN,
-    workdir="."
+    "crunchy_dl_bot",
+    bot_token=config.BOT_TOKEN,
+    api_id=config.API_ID,
+    api_hash=config.API_HASH,
 )
 
+# ---------- MongoDB ----------
+db = None
+try:
+    db = MongoClient(config.MONGO_URI).crunchy_bot
+    log.info("Connected to MongoDB")
+except Exception as e:
+    log.warning("MongoDB not configured or connection failed: %s", e)
+    db = None
+
+# ---------- In-memory job store ----------
+# key: chat_id -> { url: str, info: dict (optional) }
+JOBS: dict[int, dict] = {}
+
 # ---------- Helpers ----------
-async def run_yt_dlp_json(url: str, extra_args=None):
+async def run_subprocess(cmd: list[str], check: bool = False, timeout: Optional[int] = None) -> subprocess.CompletedProcess:
     """
-    Run yt-dlp -J (json) and return parsed JSON.
-    This is used to list formats, subtitles, etc.
+    Run a blocking subprocess in a thread so event loop doesn't block.
+    Returns subprocess.CompletedProcess
     """
-    args = [YTDLP_PATH, "-J", url]
-    if CRUNCHYROLL_USER and CRUNCHYROLL_PASS:
-        args += ["-u", CRUNCHYROLL_USER, "-p", CRUNCHYROLL_PASS]
-    if extra_args:
-        args += extra_args
-    log.info("Running yt-dlp JSON: %s", " ".join(args))
-    proc = await asyncio.create_subprocess_exec(*args,
-                                                stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.PIPE)
-    stdout, stderr = await proc.communicate()
-    if proc.returncode != 0:
-        log.error("yt-dlp -J failed: %s", stderr.decode(errors="ignore"))
-        raise RuntimeError("yt-dlp failed: " + stderr.decode(errors="ignore"))
-    return json.loads(stdout.decode())
+    def _run():
+        return subprocess.run(cmd, capture_output=True, text=True, check=check)
+    try:
+        return await asyncio.to_thread(_run)
+    except subprocess.CalledProcessError as err:
+        return err  # returned object has .stderr and .stdout
 
-async def yt_dlp_download(url: str, output_path: str, format_selector: str=None, subs_lang: str=None):
+def detect_drm(stderr_text: str) -> bool:
+    if not stderr_text:
+        return False
+    s = stderr_text.lower()
+    # common indicators
+    checks = ["drm", "widevine", "encrypted", "cannot download (?:due to|because)", "this video is drm protected"]
+    # simple check
+    if "drm" in s or "widevine" in s or "encrypted" in s or "this video is drm protected" in s:
+        return True
+    return False
+
+# ---------- DRM placeholder  ----------
+def decrypt_drm_video(url: str, lang: str, output_path: str) -> None:
     """
-    Download using yt-dlp. Returns path to downloaded file.
-    format_selector: a yt-dlp -f value or None (best)
-    subs_lang: language code for subtitles to embed/download
+    Placeholder for DRM decryption logic.
+    If you have a legal Widevine decryption backend, implement the call here
+    (e.g. spawn an external service or call via subprocess/http).
+    Must produce a playable MP4 at output_path.
     """
-    args = [YTDLP_PATH, url, "-o", output_path]
-    # login if present
-    if CRUNCHYROLL_USER and CRUNCHYROLL_PASS:
-        args += ["-u", CRUNCHYROLL_USER, "-p", CRUNCHYROLL_PASS]
-    # embed subtitles if requested
-    if subs_lang:
-        args += ["--sub-lang", subs_lang, "--embed-subs", "--write-subs", "--write-auto-sub"]
-    # choose format
-    if format_selector:
-        args += ["-f", format_selector]
-    else:
-        args += ["-f", "best"]
-    # ensure ffmpeg usage for merges is allowed (yt-dlp uses ffmpeg if installed)
-    log.info("Running yt-dlp download: %s", " ".join(args))
-    proc = await asyncio.create_subprocess_exec(*args,
-                                                stdout=asyncio.subprocess.PIPE,
-                                                stderr=asyncio.subprocess.PIPE)
-    out, err = await proc.communicate()
-    if proc.returncode != 0:
-        log.error("yt-dlp download failed: %s", err.decode(errors="ignore"))
-        raise RuntimeError("yt-dlp download failed: " + err.decode(errors="ignore"))
-    # yt-dlp writes files according to template; return matching files
-    # We assume output_path contains %(title)s or unique id; to keep simple, return the first file in download dir newer than start time
-    return True
+    # Example idea (not implemented):
+    # subprocess.run(["python3", "my_drm_decryptor.py", "--url", url, "--lang", lang, "--out", output_path], check=True)
+    raise NotImplementedError("DRM decryption backend not implemented. Plug your legal backend here.")
 
-def human_size(n):
-    for unit in ['B','KB','MB','GB','TB']:
-        if n < 1024.0:
-            return f"{n:.2f}{unit}"
-        n /= 1024.0
-    return f"{n:.2f}PB"
+# ---------- Progress helpers ----------
+_last_upload_edit: dict[int, float] = {}
 
-async def create_job_record(url, user_id):
-    if not jobs_coll:
-        return None
-    job = {
-        "url": url,
-        "user_id": user_id,
-        "status": "queued",
-        "created_at": datetime.utcnow(),
-        "updated_at": datetime.utcnow()
-    }
-    res = await jobs_coll.insert_one(job)
-    job['_id'] = res.inserted_id
-    return job
+async def upload_progress(current: int, total: int, message):
+    try:
+        # Throttle edits to once per 2 seconds per chat to avoid API flood
+        now = asyncio.get_event_loop().time()
+        last = _last_upload_edit.get(message.chat.id, 0)
+        if now - last < 2 and current < total:
+            return
+        _last_upload_edit[message.chat.id] = now
+        percent = int(current * 100 / total) if total else 0
+        await message.edit_text(f"📤 Uploading... {percent}% ({current//1024} KiB / {total//1024} KiB)")
+    except Exception:
+        pass
 
-async def update_job(job_id, **fields):
-    if not jobs_coll:
-        return
-    fields['updated_at'] = datetime.utcnow()
-    await jobs_coll.update_one({"_id": job_id}, {"$set": fields})
-
-# ---------- Commands ----------
+# ---------- Commands & Handlers ----------
 @app.on_message(filters.command("start") & filters.private)
-async def start_cmd(client, message):
+async def cmd_start(client, message):
     await message.reply_text(
-        "👋 Send me a Crunchyroll (or any yt-dlp supported) URL with /download <link>\n\n"
-        "⚠️ IMPORTANT: This bot does NOT bypass DRM. DRM-protected premium Crunchyroll episodes will NOT download.\n"
-        "If you already have a decrypted file, use /upload_local to upload it.\n\n"
-        "Examples:\n/download https://www.crunchyroll.com/some-episode\n/upload_local filename.mp4"
+        "👋 Send me a Crunchyroll link (or use /download <link>).\n"
+        "⚠️ This bot does NOT bypass DRM. If DRM is detected I will call a placeholder that you must implement."
     )
 
 @app.on_message(filters.command("download") & filters.private)
-async def download_cmd(client, message):
-    # Usage: /download <url>
+async def cmd_download(client, message):
     if len(message.command) < 2:
         return await message.reply_text("Usage: /download <url>")
     url = message.command[1].strip()
-    m = await message.reply_text("🔎 Inspecting URL with yt-dlp...")
-    job = await create_job_record(url, message.from_user.id)
+    await process_link_request(client, message.chat.id, url, reply_message=message)
+
+@app.on_message(filters.regex(r"https?://[^\s]+") & filters.private)
+async def link_message(client, message):
+    url = message.text.strip().split()[0]
+    await process_link_request(client, message.chat.id, url, reply_message=message)
+
+async def process_link_request(client, chat_id: int, url: str, reply_message):
+    log.info("New link from %s: %s", chat_id, url)
+    JOBS[chat_id] = {"url": url}
+    m = await reply_message.reply_text("🔍 Inspecting link with yt-dlp (fetching available subtitles/audio)...")
+
+    # Build yt-dlp JSON command
+    cmd = [
+        "yt-dlp",
+        "--username", getattr(config, "CRUNCHYROLL_USER", ""),
+        "--password", getattr(config, "CRUNCHYROLL_PASS", ""),
+        "-J", url
+    ]
+
+    proc = await run_subprocess(cmd, check=False)
+    # proc may be CompletedProcess or CalledProcessError
+    stdout = getattr(proc, "stdout", "") or ""
+    stderr = getattr(proc, "stderr", "") or ""
+
+    # If yt-dlp returned non-zero and stderr indicates DRM, notify user
+    if proc.returncode != 0:
+        if detect_drm(stderr):
+            await m.edit_text("🔐 This video appears to be DRM-protected. If you have a legal DRM backend, the bot can call it (placeholder).")
+            # store metadata and exit (user can still press button later if you implement backend)
+            JOBS[chat_id]["info"] = {"drm": True, "raw_err": stderr}
+            return
+        else:
+            await m.edit_text(f"❌ Failed to inspect link. yt-dlp error:\n```\n{stderr[:1000]}\n```")
+            JOBS.pop(chat_id, None)
+            return
+
+    # parse JSON
     try:
-        info = await run_yt_dlp_json(url)
+        info = json.loads(stdout)
     except Exception as e:
-        await m.edit(f"❌ Failed to inspect the URL:\n{e}")
-        if job: await update_job(job['_id'], status="failed", error=str(e))
+        await m.edit_text(f"❌ Failed to parse yt-dlp output: {e}")
+        JOBS.pop(chat_id, None)
         return
 
+    JOBS[chat_id]["info"] = info
     title = info.get("title", "video")
-    # Collect audio-only formats & subtitles (if available)
-    formats = info.get("formats", [])
-    audio_formats = []
-    video_formats = []
-    for f in formats:
-        # f may contain 'vcodec', 'acodec', 'format_id', 'format', 'filesize', 'language'
-        vcodec = f.get("vcodec")
-        acodec = f.get("acodec")
-        fmt_id = f.get("format_id")
-        filesize = f.get("filesize") or f.get("filesize_approx")
-        # audio-only
-        if vcodec == "none" and acodec and acodec != "none":
-            audio_formats.append({
-                "format_id": fmt_id,
-                "format_note": f.get("format_note"),
-                "ext": f.get("ext"),
-                "filesize": filesize,
-                "language": f.get("language") or f.get("lang") or None
-            })
-        # video (has video)
-        if vcodec and vcodec != "none":
-            video_formats.append({
-                "format_id": fmt_id,
-                "format_note": f.get("format_note"),
-                "ext": f.get("ext"),
-                "filesize": filesize,
-                "resolution": f.get("height") or f.get("format_note")
-            })
-    # subtitles (captions)
     subs = info.get("subtitles", {}) or {}
     auto_subs = info.get("automatic_captions", {}) or {}
+    all_subs = list(dict.fromkeys(list(subs.keys()) + list(auto_subs.keys())))  # preserve order
 
-    # Build reply buttons: audio choices (if any) and subtitles
+    if not all_subs:
+        # If no subtitles listed, still provide a "No subs (best audio)" option
+        all_subs = ["none"]
+
+    # make buttons (limit to 10)
     buttons = []
-    # audio buttons
-    if audio_formats:
-        btns = []
-        # show top 4 audio formats
-        shown = 0
-        for a in audio_formats:
-            txt = a["format_id"]
-            if a.get("language"):
-                txt += f" [{a['language']}]"
-            if a.get("filesize"):
-                txt += f" ({human_size(a['filesize'])})"
-            btns.append(InlineKeyboardButton(txt, callback_data=json.dumps({
-                "action": "pick_audio",
-                "url": url,
-                "title": title,
-                "format_id": a["format_id"]
-            })))
-            shown += 1
-            if shown >= 6:
-                break
-        buttons.append(btns)
-    else:
-        # fallback: pick best
-        buttons.append([InlineKeyboardButton("Use best available", callback_data=json.dumps({
-            "action": "pick_audio",
-            "url": url,
-            "title": title,
-            "format_id": None
-        }))])
+    for lang in all_subs[:10]:
+        buttons.append([InlineKeyboardButton(text=str(lang), callback_data=f"cr_lang:{lang}")])
+    buttons.append([InlineKeyboardButton("Download without subs", callback_data="cr_lang:none")])
 
-    # subtitle buttons if available
-    sub_buttons = []
-    all_subs = set(list(subs.keys()) + list(auto_subs.keys()))
-    if all_subs:
-        for lang in list(all_subs)[:6]:
-            sub_buttons.append(InlineKeyboardButton(f"Sub: {lang}", callback_data=json.dumps({
-                "action": "pick_sub",
-                "url": url,
-                "title": title,
-                "subtitle": lang
-            })))
-        # add a "no subs" button
-        sub_buttons.append(InlineKeyboardButton("No subs", callback_data=json.dumps({
-            "action": "pick_sub",
-            "url": url,
-            "title": title,
-            "subtitle": ""
-        })))
-        buttons.append(sub_buttons)
-    else:
-        buttons.append([InlineKeyboardButton("No subtitles available", callback_data=json.dumps({
-            "action": "pick_sub",
-            "url": url,
-            "title": title,
-            "subtitle": ""
-        }))])
+    await m.edit_text(
+        f"Title: {title}\nSelect subtitle/audio language (or choose 'Download without subs'):",
+        reply_markup=InlineKeyboardMarkup(buttons)
+    )
 
-    # Put a final "Start download" button to proceed with chosen defaults (best)
-    buttons.append([InlineKeyboardButton("Start download (best/defaults)", callback_data=json.dumps({
-        "action": "start_download",
-        "url": url,
-        "title": title
-    }))])
+@app.on_callback_query(filters.regex(r"^cr_lang:(.+)"))
+async def callback_pick_lang(client, callback):
+    chat_id = callback.message.chat.id
+    user = callback.from_user
+    lang = callback.data.split(":", 1)[1]
 
-    await m.edit(f"Title: {title}\nChoose audio/subtitle options:", reply_markup=InlineKeyboardMarkup(buttons))
-    await update_job(job['_id'], status="inspected", metadata={"title": title})
+    if chat_id not in JOBS:
+        await callback.answer("No active job found. Send the link again.", show_alert=True)
+        return
 
-# track user choices in memory (very small store)
-CHOICES = {}
+    url = JOBS[chat_id]["url"]
+    info = JOBS[chat_id].get("info", {})
+    title = info.get("title", "video")
+    await callback.message.edit_text(f"⬇️ Preparing download: {title}\nLanguage: {lang}")
 
-@app.on_callback_query()
-async def cb_handler(client, cq):
-    data = json.loads(cq.data)
-    action = data.get("action")
-    user = cq.from_user
-    key = f"{user.id}"
-    if action == "pick_audio":
-        CHOICES[key] = CHOICES.get(key, {})
-        CHOICES[key]['format_id'] = data.get("format_id")
-        await cq.answer(f"Selected audio format: {data.get('format_id') or 'best'}", show_alert=False)
-    elif action == "pick_sub":
-        CHOICES[key] = CHOICES.get(key, {})
-        CHOICES[key]['subtitle'] = data.get("subtitle")
-        await cq.answer(f"Subtitle set: {data.get('subtitle') or 'None'}", show_alert=False)
-    elif action == "start_download":
-        url = data.get("url")
-        title = data.get("title")
-        choices = CHOICES.get(key, {})
-        fmt = choices.get('format_id')
-        sub = choices.get('subtitle')
-        # create unique download target filename template
-        uid = str(uuid.uuid4())[:8]
-        safe_title = "".join(c for c in (title or "video") if c.isalnum() or c in " -_")[:120]
-        output_template = os.path.join(DOWNLOAD_DIR, f"{safe_title}_{uid}.%(ext)s")
-        msg = await cq.message.reply_text(f"⬇️ Starting download for **{title}**\nFormat: {fmt or 'best'}\nSubs: {sub or 'None'}", parse_mode="markdown")
-        # set job record if available
-        job = await create_job_record(url, user.id)
-        await update_job(job['_id'], status="downloading", metadata={"format": fmt, "subtitle": sub, "title": title})
+    # Create temp dir and run yt-dlp in a thread
+    with tempfile.TemporaryDirectory() as tmpdir:
+        # choose output template — yt-dlp will replace extension
+        safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:120] or "video"
+        out_template = os.path.join(tmpdir, f"{safe_title}.%(ext)s")
+        final_output_mp4 = os.path.join(tmpdir, f"{safe_title}.mp4")
+
+        # Build yt-dlp command (fast options)
+        yt_cmd = [
+            "yt-dlp",
+            "--username", getattr(config, "CRUNCHYROLL_USER", ""),
+            "--password", getattr(config, "CRUNCHYROLL_PASS", ""),
+            "-f", "bv*+ba/best",
+            "--no-part",
+            "--retries", "5",
+            "--fragment-retries", "5",
+            "--concurrent-fragments", "16",
+            "--limit-rate", "15M",                 # cap at 15 MB/s (your requested cap)
+            "--downloader-args", "ffmpeg:-threads 8",
+            url,
+            "-o", out_template
+        ]
+        # add subtitle args if requested
+        if lang and lang != "none" and lang != "und":
+            yt_cmd[ :0]  # no-op to keep style
+            yt_cmd.extend(["--sub-lang", lang, "--embed-subs", "--write-subs", "--write-auto-sub"])
+
+        # Run yt-dlp in background thread
+        await callback.message.edit_text("⬇️ Starting yt-dlp (this may take a moment)...")
+        proc = await run_subprocess(yt_cmd, check=False)
+
+        stderr = getattr(proc, "stderr", "") or ""
+        stdout = getattr(proc, "stdout", "") or ""
+        returncode = getattr(proc, "returncode", 1)
+
+        # If yt-dlp failed and looks like DRM -> try DRM placeholder
+        if returncode != 0:
+            if detect_drm(stderr):
+                await callback.message.edit_text("🔐 DRM detected. Attempting DRM backend (placeholder)...")
+                try:
+                    # Call your DRM decryption. It should create final_output_mp4
+                    decrypt_drm_video(url, lang, final_output_mp4)
+                except NotImplementedError:
+                    await callback.message.edit_text("❌ DRM backend not implemented. Please implement decrypt_drm_video().")
+                    JOBS.pop(chat_id, None)
+                    return
+                except Exception as e:
+                    await callback.message.edit_text(f"❌ DRM backend failed: {e}")
+                    JOBS.pop(chat_id, None)
+                    return
+            else:
+                await callback.message.edit_text(f"❌ yt-dlp failed:\n```\n{stderr[:1000]}\n```")
+                JOBS.pop(chat_id, None)
+                return
+        else:
+            # Find the file produced by yt-dlp (it might be .mp4 or .mkv or other ext)
+            produced_files = [os.path.join(tmpdir, f) for f in os.listdir(tmpdir)]
+            # choose largest file (likely the merged video)
+            if not produced_files:
+                await callback.message.edit_text("❌ yt-dlp finished but no file was produced.")
+                JOBS.pop(chat_id, None)
+                return
+            produced_files.sort(key=lambda p: os.path.getsize(p), reverse=True)
+            produced = produced_files[0]
+            # If not mp4, try to remux to mp4 with ffmpeg for compatibility
+            if not produced.lower().endswith(".mp4"):
+                # use ffmpeg to remux (fast copy)
+                remux_cmd = [
+                    "ffmpeg", "-y", "-i", produced,
+                    "-c", "copy",
+                    final_output_mp4
+                ]
+                remux_proc = await run_subprocess(remux_cmd, check=False)
+                if remux_proc.returncode != 0:
+                    # remux failed — fallback to uploading produced file
+                    final_path = produced
+                else:
+                    final_path = final_output_mp4
+            else:
+                final_path = produced
+
+        # Final file ready — upload it
         try:
-            # DOWNLOAD (this will fail on DRM-protected streams)
-            await yt_dlp_download(url, output_template, format_selector=fmt, subs_lang=sub if sub else None)
+            upload_msg = await callback.message.reply_text("📤 Uploading to Telegram (this may take a while)...")
+            await client.send_document(
+                chat_id,
+                final_path,
+                caption=f"{title} — downloaded with yt-dlp",
+                progress=upload_progress,
+                progress_args=(upload_msg,)
+            )
+            # Log to MongoDB if available
+            if db:
+                try:
+                    db.downloads.insert_one({
+                        "user_id": chat_id,
+                        "title": title,
+                        "url": url,
+                        "lang": lang,
+                        "timestamp": int(asyncio.get_event_loop().time())
+                    })
+                except Exception:
+                    log.exception("Failed to write DB log")
+            await upload_msg.edit_text("✅ Upload complete.")
         except Exception as e:
-            await msg.edit(f"❌ Download failed:\n{e}")
-            await update_job(job['_id'], status="failed", error=str(e))
-            return
-        # Find the downloaded file: choose newest file in DOWNLOAD_DIR matching uid
-        files = [os.path.join(DOWNLOAD_DIR, f) for f in os.listdir(DOWNLOAD_DIR) if uid in f]
-        if not files:
-            await msg.edit("❌ Download finished but file not found.")
-            await update_job(job['_id'], status="failed", error="file not found")
-            return
-        files.sort(key=lambda p: os.path.getmtime(p), reverse=True)
-        filepath = files[0]
-        fsize = os.path.getsize(filepath)
-        if fsize > MAX_UPLOAD_SIZE:
-            await msg.edit(f"⚠️ File is too large to upload to Telegram ({human_size(fsize)}). Max allowed: {human_size(MAX_UPLOAD_SIZE)}")
-            await update_job(job['_id'], status="failed", error="file too large")
-            return
-        await msg.edit(f"⬆️ Uploading {os.path.basename(filepath)} ({human_size(fsize)}) to Telegram...")
-        try:
-            await client.send_document(chat_id=user.id, document=filepath, caption=f"{title} — downloaded with yt-dlp")
-            await msg.edit("✅ Uploaded successfully. Cleaning up...")
-            await update_job(job['_id'], status="completed", file=filepath)
-        except Exception as e:
-            await msg.edit(f"❌ Upload failed: {e}")
-            await update_job(job['_id'], status="failed", error=str(e))
-            return
+            await callback.message.edit_text(f"❌ Upload failed: {e}")
         finally:
-            # remove the downloaded file
-            try:
-                os.remove(filepath)
-            except:
-                pass
-
-@app.on_message(filters.command("upload_local") & filters.private)
-async def upload_local(client, message):
-    # usage: /upload_local filename.ext  (file placed in DOWNLOAD_DIR)
-    if len(message.command) < 2:
-        return await message.reply_text("Usage: /upload_local <filename>")
-    filename = message.command[1]
-    path = os.path.join(DOWNLOAD_DIR, filename)
-    if not os.path.exists(path):
-        return await message.reply_text("File not found in download directory.")
-    fsize = os.path.getsize(path)
-    if fsize > MAX_UPLOAD_SIZE:
-        return await message.reply_text(f"File too big to upload: {human_size(fsize)}")
-    await message.reply_text("Uploading...")
-    await client.send_document(message.from_user.id, path)
-    await message.reply_text("Done.")
-
-@app.on_message(filters.command("status") & filters.private)
-async def status_cmd(client, message):
-    if not jobs_coll:
-        return await message.reply_text("Jobs DB not configured.")
-    rows = []
-    cur = jobs_coll.find({"user_id": message.from_user.id}).sort("created_at", -1).limit(10)
-    async for r in cur:
-        rows.append(f"{r.get('_id')}: {r.get('status')} — {r.get('metadata', {}).get('title','')}")
-    if not rows:
-        return await message.reply_text("No recent jobs.")
-    await message.reply_text("\n".join(rows))
-
-# ---------- Placeholder: DRM Decryption Hook ----------
-# If you legally own a way to decrypt Widevine content (for example, you have rights and a licensed decryption service),
-# implement a function that takes the url or downloaded segments and outputs a single MP4 file path.
-# DO NOT implement or request instructions on how to extract Widevine keys or crack DRM.
-async def apply_drm_decryption_if_available(segments_dir_or_url):
-    """
-    Placeholder: returns path to decrypted file if available.
-    Implementing DRM bypass is disallowed. Only use this if you have a legal decryption
-    process you run on your own infrastructure.
-    """
-    return None
+            JOBS.pop(chat_id, None)  # cleanup
 
 # ---------- Run ----------
 if __name__ == "__main__":
+    log.info("Starting bot...")
     app.run()
