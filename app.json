@@ -41,7 +41,7 @@
     },
     "DOWNLOAD_DIR": {
       "description": "Local path to save temporary downloads",
-      "value": "./downloads",
+      "value": "/tmp/downloads",
       "required": false
     },
     "MAX_UPLOAD_SIZE": {
