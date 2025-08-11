@@ -1,27 +1,28 @@
 # config.py
-# Loads environment variables for the Crunchyroll downloader bot.
-
+# Loads environment variables for the Crunchyroll downloader bo
 import os
 from dotenv import load_dotenv
 
 load_dotenv()
 
-# === Telegram API ===
-API_ID = int(os.getenv("API_ID", "23559126"))  # Your Telegram API ID (integer)
-API_HASH = os.getenv("API_HASH", "58347a441c011b1b9ee3367ea936dcc4")    # Your Telegram API Hash
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk")  # Your bot token from BotFather
+# Telegram bot token from BotFather
+BOT_TOKEN = os.getenv("BOT_TOKEN", "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk").strip()
 
-# === MongoDB ===
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://drdoom2003p:drdoom2003p@cluster0.fnhjrtn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0")  # MongoDB connection URI
+# Your numeric Telegram user ID to restrict usage
+OWNER_ID = int(os.getenv("OWNER_ID", "7813285237"))
 
-# === Crunchyroll Credentials (optional) ===
-CRUNCHYROLL_USER = os.getenv("CRUNCHYROLL_USER", "jg_717@hotmail.com")
-CRUNCHYROLL_PASS = os.getenv("CRUNCHYROLL_PASS", "J7173659207g.")
+# Cookies file path for Crunchyroll auth (place your cookies.txt here)
+COOKIES_FILE = os.getenv("COOKIES_FILE", "cookies/cookies.txt")
 
-# === yt-dlp settings ===
-YTDLP_PATH = os.getenv("YTDLP_PATH", "yt-dlp")  # yt-dlp binary name/path
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/downloads")  # Where downloads will be saved
+# Directory to save temp downloads
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/downloads")
 
-# === Upload/Download settings ===
-MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(2_000_000_000)))  # 2 GB safety cap (bytes)
-LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
+# Validate critical vars (optional)
+if not BOT_TOKEN:
+    raise ValueError("BOT_TOKEN is required in environment variables")
+
+if OWNER_ID == 0:
+    raise ValueError("OWNER_ID must be set to your Telegram numeric user ID")
+
+if not os.path.exists(COOKIES_FILE):
+    print(f"[WARNING] Cookies file {COOKIES_FILE} does not exist. Please add your Crunchyroll cookies.")
