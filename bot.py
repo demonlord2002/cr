@@ -1,7 +1,5 @@
 #!/usr/bin/env python3
-# bot.py — Crunchyroll downloader (DRM-aware placeholder)
-# Requirements: pyrogram, tgcrypto, pymongo, yt-dlp[impersonate]
-# pip install pyrogram tgcrypto pymongo "yt-dlp[impersonate]"
+# bot.py — Crunchyroll downloader with dynamic impersonation target detection
 
 import os
 import json
@@ -15,13 +13,11 @@ from pyrogram import Client, filters
 from pyrogram.types import InlineKeyboardMarkup, InlineKeyboardButton
 from pymongo import MongoClient
 
-import config  # config.py with BOT_TOKEN, API_ID, API_HASH, MONGO_URI
+import config  # BOT_TOKEN, API_ID, API_HASH, MONGO_URI
 
-# ---------- Logging ----------
 logging.basicConfig(level=logging.INFO)
 log = logging.getLogger("crunchy_bot")
 
-# ---------- Pyrogram client ----------
 app = Client(
     "crunchy_dl_bot",
     bot_token=config.BOT_TOKEN,
@@ -29,7 +25,6 @@ app = Client(
     api_hash=config.API_HASH,
 )
 
-# ---------- MongoDB ----------
 try:
     db = MongoClient(config.MONGO_URI).crunchy_bot
     log.info("Connected to MongoDB")
@@ -37,10 +32,11 @@ except Exception as e:
     log.warning("MongoDB not configured or connection failed: %s", e)
     db = None
 
-# ---------- In-memory job store ----------
 JOBS: dict[int, dict] = {}
+_last_upload_edit: dict[int, float] = {}
 
-# ---------- Helpers ----------
+
+# --------- Helpers ---------
 async def run_subprocess(cmd: list[str], check: bool = False) -> subprocess.CompletedProcess:
     def _run():
         return subprocess.run(cmd, capture_output=True, text=True, check=check)
@@ -49,16 +45,17 @@ async def run_subprocess(cmd: list[str], check: bool = False) -> subprocess.Comp
     except subprocess.CalledProcessError as err:
         return err
 
+
 def detect_drm(stderr_text: str) -> bool:
     if not stderr_text:
         return False
     s = stderr_text.lower()
     return any(k in s for k in ["drm", "widevine", "encrypted", "this video is drm protected"])
 
+
 def decrypt_drm_video(url: str, lang: str, output_path: str) -> None:
     raise NotImplementedError("DRM backend not implemented.")
 
-_last_upload_edit: dict[int, float] = {}
 
 async def upload_progress(current: int, total: int, message):
     try:
@@ -72,13 +69,25 @@ async def upload_progress(current: int, total: int, message):
     except Exception:
         pass
 
-# ---------- Commands ----------
+
+async def get_best_impersonation_target() -> Optional[str]:
+    """Return the best available Chrome impersonation target or None."""
+    proc = await run_subprocess(["yt-dlp", "--list-impersonate-targets"])
+    if proc.returncode != 0:
+        return None
+    targets = (proc.stdout or "").splitlines()
+    chrome_targets = [t.strip() for t in targets if "chrome" in t.lower()]
+    return chrome_targets[0] if chrome_targets else None
+
+
+# --------- Commands ---------
 @app.on_message(filters.command("start") & filters.private)
 async def cmd_start(_, message):
     await message.reply_text(
         "👋 Send me a Crunchyroll link (or use /download <link>).\n"
         "⚠️ DRM-protected videos require a legal DRM backend."
     )
+
 
 @app.on_message(filters.command("download") & filters.private)
 async def cmd_download(client, message):
@@ -87,23 +96,27 @@ async def cmd_download(client, message):
     url = message.command[1].strip()
     await process_link_request(client, message.chat.id, url, reply_message=message)
 
+
 @app.on_message(filters.regex(r"https?://[^\s]+") & filters.private)
 async def link_message(client, message):
     url = message.text.strip().split()[0]
     await process_link_request(client, message.chat.id, url, reply_message=message)
 
-# ---------- Link Processing ----------
+
+# --------- Link Processing ---------
 async def process_link_request(client, chat_id: int, url: str, reply_message):
     log.info("New link from %s: %s", chat_id, url)
     JOBS[chat_id] = {"url": url}
     m = await reply_message.reply_text("🔍 Inspecting link with yt-dlp...")
 
+    impersonate_target = await get_best_impersonation_target()
     cmd = [
         "yt-dlp",
         "--cookies", "cookies/cookies.txt",
-        "--impersonate", "chrome110",
         "-J", url
     ]
+    if impersonate_target:
+        cmd[1:1] = ["--impersonate", impersonate_target]  # insert after yt-dlp
 
     proc = await run_subprocess(cmd, check=False)
     stdout = getattr(proc, "stdout", "") or ""
@@ -141,7 +154,8 @@ async def process_link_request(client, chat_id: int, url: str, reply_message):
         reply_markup=InlineKeyboardMarkup(buttons)
     )
 
-# ---------- Callback ----------
+
+# --------- Callback ---------
 @app.on_callback_query(filters.regex(r"^cr_lang:(.+)"))
 async def callback_pick_lang(client, callback):
     chat_id = callback.message.chat.id
@@ -156,6 +170,8 @@ async def callback_pick_lang(client, callback):
     title = info.get("title", "video")
     await callback.message.edit_text(f"⬇️ Preparing download: {title}\nLanguage: {lang}")
 
+    impersonate_target = await get_best_impersonation_target()
+
     with tempfile.TemporaryDirectory() as tmpdir:
         safe_title = "".join(c for c in title if c.isalnum() or c in " -_")[:120] or "video"
         out_template = os.path.join(tmpdir, f"{safe_title}.%(ext)s")
@@ -164,7 +180,6 @@ async def callback_pick_lang(client, callback):
         yt_cmd = [
             "yt-dlp",
             "--cookies", "cookies/cookies.txt",
-            "--impersonate", "chrome110",
             "-f", "bv*+ba/best",
             "--no-part",
             "--retries", "5",
@@ -175,6 +190,8 @@ async def callback_pick_lang(client, callback):
             url,
             "-o", out_template
         ]
+        if impersonate_target:
+            yt_cmd[1:1] = ["--impersonate", impersonate_target]
         if lang not in ("none", "und"):
             yt_cmd.extend(["--sub-lang", lang, "--embed-subs", "--write-subs", "--write-auto-sub"])
 
@@ -238,7 +255,7 @@ async def callback_pick_lang(client, callback):
         finally:
             JOBS.pop(chat_id, None)
 
-# ---------- Run ----------
+
 if __name__ == "__main__":
     log.info("Starting bot...")
     app.run()
