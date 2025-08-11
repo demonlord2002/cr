@@ -1,0 +1,71 @@
+{
+  "name": "Crunchyroll-Download-Telegram-Bot",
+  "description": "A Telegram bot to download Crunchyroll episodes (DRM-free, DRM-ready). Uses yt-dlp and supports audio/subtitle selection.",
+  "repository": "https://github.com/yourusername/crunchyroll-telegram-bot",
+  "keywords": ["python", "telegram", "bot", "yt-dlp", "crunchyroll"],
+  "env": {
+    "API_ID": {
+      "description": "Telegram API ID from my.telegram.org",
+      "required": true,
+      "value": ""
+    },
+    "API_HASH": {
+      "description": "Telegram API Hash from my.telegram.org",
+      "required": true,
+      "value": ""
+    },
+    "BOT_TOKEN": {
+      "description": "Bot token from @BotFather",
+      "required": true,
+      "value": ""
+    },
+    "MONGO_URI": {
+      "description": "MongoDB connection URI (mongodb+srv://...)",
+      "required": true,
+      "value": ""
+    },
+    "CRUNCHYROLL_USER": {
+      "description": "Crunchyroll account email for premium episodes",
+      "required": true,
+      "value": ""
+    },
+    "CRUNCHYROLL_PASS": {
+      "description": "Crunchyroll account password for premium episodes",
+      "required": true,
+      "value": ""
+    },
+    "YTDLP_PATH": {
+      "description": "yt-dlp executable name or path",
+      "value": "yt-dlp",
+      "required": false
+    },
+    "DOWNLOAD_DIR": {
+      "description": "Local path to save temporary downloads",
+      "value": "./downloads",
+      "required": false
+    },
+    "MAX_UPLOAD_SIZE": {
+      "description": "Maximum Telegram upload size in bytes (2GB default)",
+      "value": "2000000000",
+      "required": false
+    },
+    "LOG_LEVEL": {
+      "description": "Logging verbosity (DEBUG, INFO, WARNING)",
+      "value": "INFO",
+      "required": false
+    }
+  },
+  "buildpacks": [
+    { "url": "heroku/python" }
+  ],
+  "formation": {
+    "worker": {
+      "quantity": 1,
+      "size": "Basic"
+    }
+  },
+  "addons": [],
+  "scripts": {
+    "postdeploy": "echo 'Bot deployed successfully!'"
+  }
+}
