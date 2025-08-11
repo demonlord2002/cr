@@ -1,5 +1,9 @@
 pyrogram==2.0.106
-tgcrypto==1.2.5
-pymongo[srv]==4.10.1
-python-dotenv==1.0.1
-yt-dlp==2025.1.15
+tgcrypto
+yt-dlp
+requests
+aiohttp
+python-dotenv
+pymongo
+motor
+Pillow
