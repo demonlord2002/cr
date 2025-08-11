@@ -1,6 +1,7 @@
 import os
 import re
 import subprocess
+import shutil
 import asyncio
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
@@ -13,14 +14,15 @@ OWNER_ID = int(os.getenv("OWNER_ID", "0"))
 COOKIES_FILE = "cookies/cookies.txt"
 DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/downloads")
 
+# Create necessary directories
 os.makedirs(DOWNLOAD_DIR, exist_ok=True)
-
 if not os.path.exists(COOKIES_FILE):
     os.makedirs("cookies", exist_ok=True)
     print(f"[ERROR] Please place your cookies.txt file in {COOKIES_FILE}")
     exit()
 
 def clean_filename(name: str) -> str:
+    # Remove special chars from filename to avoid OS issues
     return re.sub(r'[\\/*?:"<>|]', "", name)
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
@@ -41,11 +43,10 @@ async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     try:
         base_filename = clean_filename("%(title)s")
         temp_dir = os.path.join(DOWNLOAD_DIR, "temp_dl")
+        if os.path.exists(temp_dir):
+            shutil.rmtree(temp_dir)
         os.makedirs(temp_dir, exist_ok=True)
 
-        # Download best video and all audio formats separately
-        # -f "bv*+ba*" means best video + all audio, but yt-dlp merges only best audio by default
-        # So we will download bestvideo+bestaudio in mkv format and let yt-dlp merge automatically
         output_template = os.path.join(temp_dir, base_filename + ".%(ext)s")
 
         cmd = [
@@ -58,39 +59,52 @@ async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
             url
         ]
         
-        subprocess.run(cmd, check=True)
+        # Run yt-dlp as subprocess, capture output and errors
+        proc = subprocess.run(cmd, capture_output=True, text=True)
+        if proc.returncode != 0:
+            await msg.edit_text(f"❌ yt-dlp failed:\n```\n{proc.stderr[:1000]}\n```")
+            shutil.rmtree(temp_dir)
+            return
 
-        # After yt-dlp finishes, find the downloaded .mkv or video file
+        # Look for the downloaded file (mkv preferred)
         downloaded_files = [f for f in os.listdir(temp_dir) if f.endswith(".mkv") or f.endswith(".mp4")]
         if not downloaded_files:
-            return await msg.edit_text("❌ No video file found after download.")
+            await msg.edit_text("❌ No video file found after download.")
+            shutil.rmtree(temp_dir)
+            return
 
+        # Choose largest file (usually the correct video)
         downloaded_files.sort(key=lambda f: os.path.getsize(os.path.join(temp_dir, f)), reverse=True)
         downloaded_file_path = os.path.join(temp_dir, downloaded_files[0])
 
-        # Rename file to .mkv forcibly if mp4 (because it may not contain all audio tracks merged)
         final_output = os.path.join(DOWNLOAD_DIR, base_filename + ".mkv")
         if not downloaded_file_path.endswith(".mkv"):
-            # Remux to mkv using ffmpeg to support multiple audio tracks
+            # Remux to MKV with ffmpeg
             remux_cmd = [
                 "ffmpeg",
+                "-y",  # overwrite output
                 "-i", downloaded_file_path,
                 "-c", "copy",
                 final_output
             ]
-            subprocess.run(remux_cmd, check=True)
+            remux_proc = subprocess.run(remux_cmd, capture_output=True, text=True)
+            if remux_proc.returncode != 0:
+                await msg.edit_text(f"❌ ffmpeg remux failed:\n```\n{remux_proc.stderr[:1000]}\n```")
+                shutil.rmtree(temp_dir)
+                return
             os.remove(downloaded_file_path)
         else:
             os.rename(downloaded_file_path, final_output)
 
         await update.message.reply_document(document=open(final_output, "rb"), caption=f"{base_filename} (with all audio tracks)")
-        os.remove(final_output)
-        os.rmdir(temp_dir)
         await msg.edit_text("✅ Download and upload completed!")
-    except subprocess.CalledProcessError as e:
-        await msg.edit_text(f"❌ Download failed: {e}")
+
+        # Cleanup
+        os.remove(final_output)
+        shutil.rmtree(temp_dir)
+
     except Exception as e:
-        await msg.edit_text(f"⚠ Error: {e}")
+        await msg.edit_text(f"⚠ Unexpected error: {e}")
 
 def main():
     app = ApplicationBuilder().token(BOT_TOKEN).build()
@@ -100,3 +114,4 @@ def main():
 
 if __name__ == "__main__":
     main()
+    
