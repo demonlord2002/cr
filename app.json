@@ -7,32 +7,32 @@
     "API_ID": {
       "description": "Telegram API ID from my.telegram.org",
       "required": true,
-      "value": ""
+      "value": "23559126"
     },
     "API_HASH": {
       "description": "Telegram API Hash from my.telegram.org",
       "required": true,
-      "value": ""
+      "value": "58347a441c011b1b9ee3367ea936dcc4"
     },
     "BOT_TOKEN": {
       "description": "Bot token from @BotFather",
       "required": true,
-      "value": ""
+      "value": "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk"
     },
     "MONGO_URI": {
       "description": "MongoDB connection URI (mongodb+srv://...)",
       "required": true,
-      "value": ""
+      "value": "mongodb+srv://drdoom2003p:drdoom2003p@cluster0.fnhjrtn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
     },
     "CRUNCHYROLL_USER": {
       "description": "Crunchyroll account email for premium episodes",
       "required": true,
-      "value": ""
+      "value": "jg_717@hotmail.com"
     },
     "CRUNCHYROLL_PASS": {
       "description": "Crunchyroll account password for premium episodes",
       "required": true,
-      "value": ""
+      "value": "J7173659207g."
     },
     "YTDLP_PATH": {
       "description": "yt-dlp executable name or path",
