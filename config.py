@@ -20,7 +20,7 @@ CRUNCHYROLL_PASS = os.getenv("CRUNCHYROLL_PASS", "J7173659207g.")
 
 # === yt-dlp settings ===
 YTDLP_PATH = os.getenv("YTDLP_PATH", "yt-dlp")  # yt-dlp binary name/path
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "./downloads")  # Where downloads will be saved
+DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/downloads")  # Where downloads will be saved
 
 # === Upload/Download settings ===
 MAX_UPLOAD_SIZE = int(os.getenv("MAX_UPLOAD_SIZE", str(2_000_000_000)))  # 2 GB safety cap (bytes)
