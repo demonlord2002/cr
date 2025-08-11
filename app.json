@@ -1,7 +1,7 @@
 {
   "name": "Crunchyroll-Download-Telegram-Bot",
   "description": "A Telegram bot to download Crunchyroll episodes (DRM-free, DRM-ready). Uses yt-dlp and supports audio/subtitle selection.",
-  "repository": "https://github.com/yourusername/crunchyroll-telegram-bot",
+  "repository": "https://github.com/demonlord2002/cr",
   "keywords": ["python", "telegram", "bot", "yt-dlp", "crunchyroll"],
   "env": {
     "API_ID": {
