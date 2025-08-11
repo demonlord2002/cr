@@ -29,6 +29,13 @@ app = Client(
     api_hash=config.API_HASH,
 )
 
+ytdlp_cmd = [
+    "yt-dlp",
+    "--cookies", "cookies.txt",
+    "--user-agent", "Mozilla/5.0 (Windows NT 10.0; Win64; x64)...",
+    link
+]
+
 # ---------- MongoDB ----------
 db = None
 try:
