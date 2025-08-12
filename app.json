@@ -19,44 +19,21 @@
       "required": true,
       "value": "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk"
     },
-    "MONGO_URI": {
-      "description": "MongoDB connection URI (mongodb+srv://...)",
+    "OWNER_ID": {
+      "description": "Your Telegram User ID to restrict bot access",
       "required": true,
-      "value": "mongodb+srv://drdoom2003p:drdoom2003p@cluster0.fnhjrtn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"
-    },
-    "CRUNCHYROLL_USER": {
-      "description": "Crunchyroll account email for premium episodes",
-      "required": true,
-      "value": "jg_717@hotmail.com"
-    },
-    "CRUNCHYROLL_PASS": {
-      "description": "Crunchyroll account password for premium episodes",
-      "required": true,
-      "value": "J7173659207g."
-    },
-    "YTDLP_PATH": {
-      "description": "yt-dlp executable name or path",
-      "value": "yt-dlp",
-      "required": false
+      "value": "7813285237"
     },
     "DOWNLOAD_DIR": {
-      "description": "Local path to save temporary downloads",
-      "value": "/tmp/downloads",
-      "required": false
-    },
-    "MAX_UPLOAD_SIZE": {
-      "description": "Maximum Telegram upload size in bytes (2GB default)",
-      "value": "2000000000",
-      "required": false
-    },
-    "LOG_LEVEL": {
-      "description": "Logging verbosity (DEBUG, INFO, WARNING)",
-      "value": "INFO",
-      "required": false
+      "description": "Directory path for downloads",
+      "required": false,
+      "value": "/tmp/downloads"
     }
   },
   "buildpacks": [
-    { "url": "heroku/python" }
+    {
+      "url": "heroku/python"
+    }
   ],
   "formation": {
     "worker": {
