@@ -4,27 +4,35 @@ import subprocess
 import shutil
 from telegram import Update
 from telegram.ext import ApplicationBuilder, CommandHandler, ContextTypes
-import config  # your config.py
+import config  # your config.py with BOT_TOKEN, OWNER_ID, COOKIES_FILE, DOWNLOAD_DIR
 
-# Create necessary directories
+
+# Ensure download directory exists
 os.makedirs(config.DOWNLOAD_DIR, exist_ok=True)
+
+# Check cookies file presence at startup, raise error if missing
 if not os.path.exists(config.COOKIES_FILE):
-    os.makedirs("cookies", exist_ok=True)
-    print(f"[ERROR] Please place your cookies.txt file in {config.COOKIES_FILE}")
-    exit()
+    raise FileNotFoundError(f"[ERROR] Please place your cookies.txt file in {config.COOKIES_FILE}")
+
 
 def clean_filename(name: str) -> str:
+    # Remove characters not allowed in filenames for Windows/Linux/Mac
     return re.sub(r'[\\/*?:"<>|]', "", name)
+
 
 async def start(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.OWNER_ID:
         return await update.message.reply_text("🚫 You are not authorized to use this bot.")
-    await update.message.reply_text("✅ Send `/download <crunchyroll_link>` to download video with all audio languages (MKV format).")
+    await update.message.reply_text(
+        "✅ Send `/download <crunchyroll_link>` to download video with all audio languages (MKV format).",
+        parse_mode="Markdown"
+    )
+
 
 async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
     if update.effective_user.id != config.OWNER_ID:
         return await update.message.reply_text("🚫 You are not authorized to use this bot.")
-    
+
     if not context.args:
         return await update.message.reply_text("❌ Usage: `/download <crunchyroll_link>`", parse_mode="Markdown")
 
@@ -56,6 +64,7 @@ async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
             shutil.rmtree(temp_dir)
             return
 
+        # Find downloaded mkv file
         downloaded_files = [f for f in os.listdir(temp_dir) if f.endswith(".mkv")]
         if not downloaded_files:
             await msg.edit_text("❌ No MKV video file found after download.")
@@ -63,28 +72,35 @@ async def download(update: Update, context: ContextTypes.DEFAULT_TYPE):
             return
 
         downloaded_file_path = os.path.join(temp_dir, downloaded_files[0])
-        final_output = os.path.join(config.DOWNLOAD_DIR, clean_filename(downloaded_files[0]))
+        final_output_name = clean_filename(downloaded_files[0])
+        final_output_path = os.path.join(config.DOWNLOAD_DIR, final_output_name)
 
-        shutil.move(downloaded_file_path, final_output)
+        shutil.move(downloaded_file_path, final_output_path)
 
-        # Send as document with proper .mkv filename and mime type
-        with open(final_output, "rb") as video_file:
-            await update.message.reply_document(document=video_file, filename=os.path.basename(final_output), caption=f"{os.path.basename(final_output)} (all audio tracks)")
+        # Send the video as document
+        with open(final_output_path, "rb") as video_file:
+            await update.message.reply_document(
+                document=video_file,
+                filename=final_output_name,
+                caption=f"{final_output_name} (all audio tracks)"
+            )
 
         await msg.edit_text("✅ Download and upload completed!")
 
-        # Cleanup
-        os.remove(final_output)
+        # Cleanup temp files
+        os.remove(final_output_path)
         shutil.rmtree(temp_dir)
 
     except Exception as e:
         await msg.edit_text(f"⚠ Unexpected error: {e}")
+
 
 def main():
     app = ApplicationBuilder().token(config.BOT_TOKEN).build()
     app.add_handler(CommandHandler("start", start))
     app.add_handler(CommandHandler("download", download))
     app.run_polling()
+
 
 if __name__ == "__main__":
     main()
