@@ -1,9 +1,4 @@
-pyrogram==2.0.106
-tgcrypto
-yt-dlp[impersonate]
-requests
-aiohttp
-python-dotenv
-pymongo
-motor
-Pillow
+python-telegram-bot==20.3
+python-dotenv==1.0.0
+yt-dlp==2025.08.09
+ffmpeg-python==0.2.0
