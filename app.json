@@ -2,39 +2,40 @@
   "name": "Crunchyroll-Download-Telegram-Bot",
   "description": "A Telegram bot to download Crunchyroll episodes (DRM-free, DRM-ready). Uses yt-dlp and supports audio/subtitle selection.",
   "repository": "https://github.com/demonlord2002/cr",
-  "keywords": ["python", "telegram", "bot", "yt-dlp", "crunchyroll"],
-  "env": {
-    "API_ID": {
-      "description": "Telegram API ID from my.telegram.org",
-      "required": true,
-      "value": "23559126"
-    },
-    "API_HASH": {
-      "description": "Telegram API Hash from my.telegram.org",
-      "required": true,
-      "value": "58347a441c011b1b9ee3367ea936dcc4"
-    },
-    "BOT_TOKEN": {
-      "description": "Bot token from @BotFather",
-      "required": true,
-      "value": "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk"
-    },
-    "OWNER_ID": {
-      "description": "Your Telegram User ID to restrict bot access",
-      "required": true,
-      "value": "7813285237"
-    },
-    "DOWNLOAD_DIR": {
-      "description": "Directory path for downloads",
-      "required": false,
-      "value": "/tmp/downloads"
-    }
-  },
+  "keywords": [
+    "python",
+    "telegram",
+    "bot",
+    "yt-dlp",
+    "crunchyroll"
+  ],
   "buildpacks": [
     {
       "url": "heroku/python"
     }
   ],
+  "env": {
+    "API_ID": {
+      "description": "Your Telegram API ID from https://my.telegram.org",
+      "value": "23559126"
+    },
+    "API_HASH": {
+      "description": "Your Telegram API Hash from https://my.telegram.org",
+      "value": "58347a441c011b1b9ee3367ea936dcc4"
+    },
+    "BOT_TOKEN": {
+      "description": "Your Telegram bot token from BotFather",
+      "value": "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk"
+    },
+    "OWNER_ID": {
+      "description": "Your Telegram User ID to restrict bot access",
+      "value": "7813285237"
+    },
+    "DOWNLOAD_DIR": {
+      "description": "Directory path for downloads",
+      "value": "/tmp/downloads"
+    }
+  },
   "formation": {
     "worker": {
       "quantity": 1,
