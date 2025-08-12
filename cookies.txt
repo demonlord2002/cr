@@ -1,0 +1,28 @@
+# Netscape HTTP Cookie File
+# https://curl.haxx.se/rfc/cookie_spec.html
+# This is a generated file! Do not edit.
+
+.crunchyroll.com	TRUE	/	TRUE	1786475706	c_locale	en-US
+.crunchyroll.com	TRUE	/	FALSE	1786475962	ajs_anonymous_id	31d155aa-95ad-41bf-973c-f4648f407048
+.crunchyroll.com	TRUE	/	TRUE	1754941432	__cf_bm	iKz748h7k5ZPBsyykBMxdenrSpLmJkwJxUR4YgfdFrU-1754939633-1.0.1.1-mmnBc8J54ZZR2Ha.cuUrUmNiWAp4gkdN6GmaK1iVfC5bdjociiH6TDfqfmGC1cmostEx6Td7gPtf0wavdnrgeg1Ul5zRvmdLWxrpuRjSANxvEYLyiEm2HSNXm37Ap6dd
+.crunchyroll.com	TRUE	/	TRUE	1786475636	SSID_GuUe	CQBm-B04AAAAAAD1QJpoYXeFI_VAmmgBAAAAAAAAAAAA9UCaaADzVF1dAQMllioA9UCaaAEAi2MBAwAUKwD1QJpoAQBMXgEBCagqAPVAmmgBAJxPAQMSQSkA9UCaaAEA
+.crunchyroll.com	TRUE	/	TRUE	0	SSSC_GuUe	972.G7537408347965060961.1|85916.2703634:89437.2790949:89676.2795529:91019.2823168
+.crunchyroll.com	TRUE	/	TRUE	1786475850	SSRT_GuUe	y0GaaAADAA
+.crunchyroll.com	TRUE	/	TRUE	1789499719	device_id	23972251-d79b-468e-b8af-05be1ffeb772
+.crunchyroll.com	TRUE	/	TRUE	1789499671	etp_rt	f7ae4227-e3ba-466a-af64-9423d66f4e7b
+.crunchyroll.com	TRUE	/	TRUE	0	cr_exp	3bab97b1-e826-5345-8df9-185b6430ecfccecb55f3-eb70-4248-84ae-4971e031c81f
+www.crunchyroll.com	FALSE	/	FALSE	1754940863	_dd_s	rum=0&expire=1754940863101
+.www.crunchyroll.com	TRUE	/	FALSE	1786475706	OptanonConsent	isGpcEnabled=0&datestamp=Tue+Aug+12+2025+00%3A45%3A06+GMT%2B0530+(India+Standard+Time)&version=202311.1.0&browserGpcFlag=0&isIABGlobal=false&hosts=&consentId=2f6857ee-138d-4eff-b72d-e211663865b4&interactionCount=1&landingPath=NotLandingPage&groups=C0001%3A1%2CC0003%3A1%2CC0002%3A1%2CC0004%3A1&geolocation=IN%3BTN&AwaitingReconsent=false
+.crunchyroll.com	TRUE	/	FALSE	1786475849	ajs_user_id	3bab97b1-e826-5345-8df9-185b6430ecfc
+.www.crunchyroll.com	TRUE	/	FALSE	1786475681	OptanonAlertBoxClosed	2025-08-11T19:14:41.912Z
+.crunchyroll.com	TRUE	/	FALSE	1762715682	_gcl_au	1.1.1026007812.1754939682
+.crunchyroll.com	TRUE	/	FALSE	1789499710	_ga_METRICID	GS2.1.s1754939682$o1$g1$t1754939710$j32$l0$h1254186711
+.crunchyroll.com	TRUE	/	FALSE	1789499706	_ga	GA1.1.1589738225.1754939683
+.crunchyroll.com	TRUE	/	TRUE	1789499713	FPID	FPID2.2.Qj0xuWVQJe%2BE%2F6V3lYZkgfQDJJyyU5DD4kn%2BHb9zpOQ%3D.1754939683
+.crunchyroll.com	TRUE	/	TRUE	1755011685	FPLC	lYgxDUylNppisBkswkZVzE4X4aogRBsSS4E0YxnmAbrsuJC7FLR0uNHjkxLGMXO7l9PW3tfNbmF51gmB0SQLHRstzmgB33uLrWN4FOrvkHP7arI%2BpcpFIji7aLf9%2FA%3D%3D
+.crunchyroll.com	TRUE	/	TRUE	1762715681	FPAU	1.1.1026007812.1754939682
+.crunchyroll.com	TRUE	/	FALSE	1789499709	ab.storage.userId.80f403d2-1c18-471d-b0ef-243d1d646436	%7B%22g%22%3A%223bab97b1-e826-5345-8df9-185b6430ecfc%22%2C%22c%22%3A1754939709933%2C%22l%22%3A1754939709943%7D
+.crunchyroll.com	TRUE	/	FALSE	1789499709	ab.storage.sessionId.80f403d2-1c18-471d-b0ef-243d1d646436	%7B%22g%22%3A%225b36b249-8df8-400f-58c1-bde7b375363e%22%2C%22e%22%3A1754941509949%2C%22c%22%3A1754939709941%2C%22l%22%3A1754939709949%7D
+.crunchyroll.com	TRUE	/	FALSE	1789499709	ab.storage.deviceId.80f403d2-1c18-471d-b0ef-243d1d646436	%7B%22g%22%3A%226d5011db-9c16-7f7e-1a39-8aa3c1ea5707%22%2C%22c%22%3A1754939709944%2C%22l%22%3A1754939709944%7D
+.crunchyroll.com	TRUE	/	TRUE	1762715713	_gtmeec	e30%3D
+.crunchyroll.com	TRUE	/	TRUE	1762715713	_fbp	fb.1.1754939713549.1484749863
