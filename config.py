@@ -1,11 +1,10 @@
-import os
+# config.py
 
-BOT_TOKEN = os.getenv("BOT_TOKEN", "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk")
-OWNER_ID = int(os.getenv("OWNER_ID", "7813285237"))
+BOT_TOKEN = "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk"
 
-# Optional placeholders if you want to add later
-API_ID = os.getenv("API_ID", "23559126")
-API_HASH = os.getenv("API_HASH", "58347a441c011b1b9ee3367ea936dcc4")
+API_ID = 23559126        # Your Telegram API_ID (from my.telegram.org)
+API_HASH = "58347a441c011b1b9ee3367ea936dcc4"  # Your Telegram API_HASH
 
-COOKIES_FILE = "cookies/cookies.txt"
-DOWNLOAD_DIR = os.getenv("DOWNLOAD_DIR", "/tmp/downloads")
+MONGODB_URI = "mongodb+srv://drdoom2003p:drdoom2003p@cluster0.fnhjrtn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0"  # Or your cloud MongoDB connection string
+
+COOKIES_FILE = "cookies.txt"  # Path to your Crunchyroll cookies.txt file
