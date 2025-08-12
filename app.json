@@ -1,39 +1,37 @@
 {
-  "name": "Crunchyroll-Download-Telegram-Bot",
-  "description": "A Telegram bot to download Crunchyroll episodes (DRM-free, DRM-ready). Uses yt-dlp and supports audio/subtitle selection.",
+  "name": "crunchyroll-downloader-bot",
+  "description": "Telegram bot to download Crunchyroll videos and upload with audio track selection",
   "repository": "https://github.com/demonlord2002/cr",
-  "keywords": [
-    "python",
-    "telegram",
-    "bot",
-    "yt-dlp",
-    "crunchyroll"
-  ],
+  "keywords": ["telegram", "bot", "crunchyroll", "yt-dlp", "video downloader"],
   "buildpacks": [
-    {
-      "url": "heroku/python"
-    }
+    { "url": "https://github.com/jonathanong/heroku-buildpack-ffmpeg-latest.git" },
+    { "url": "heroku/python" }
   ],
   "env": {
+    "BOT_TOKEN": {
+      "description": "Telegram Bot Token from @BotFather",
+      "value": "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk",
+      "required": true
+    },
     "API_ID": {
-      "description": "Your Telegram API ID from https://my.telegram.org",
-      "value": "23559126"
+      "description": "Telegram API ID from my.telegram.org",
+      "value": "23559126",
+      "required": true
     },
     "API_HASH": {
-      "description": "Your Telegram API Hash from https://my.telegram.org",
-      "value": "58347a441c011b1b9ee3367ea936dcc4"
+      "description": "Telegram API Hash from my.telegram.org",
+      "value": "58347a441c011b1b9ee3367ea936dcc4",
+      "required": true
     },
-    "BOT_TOKEN": {
-      "description": "Your Telegram bot token from BotFather",
-      "value": "8289940670:AAGQ8Z49PV6wZ_sfY5JWl192wPWPWyeBDCk"
+    "MONGODB_URI": {
+      "description": "MongoDB connection URI",
+      "value": "mongodb+srv://drdoom2003p:drdoom2003p@cluster0.fnhjrtn.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0",
+      "required": true
     },
-    "OWNER_ID": {
-      "description": "Your Telegram User ID to restrict bot access",
-      "value": "7813285237"
-    },
-    "DOWNLOAD_DIR": {
-      "description": "Directory path for downloads",
-      "value": "/tmp/downloads"
+    "COOKIES_FILE": {
+      "description": "Path to Crunchyroll cookies.txt file",
+      "value": "cookies.txt",
+      "required": true
     }
   },
   "formation": {
@@ -44,6 +42,7 @@
   },
   "addons": [],
   "scripts": {
-    "postdeploy": "echo 'Bot deployed successfully!'"
+    "start": "python bot.py",
+    "postdeploy": "echo '✅ Crunchyroll Downloader Bot deployed successfully!'"
   }
 }
